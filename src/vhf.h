@@ -1,0 +1,18 @@
+#define TCP_PORT 8080
+#define DEBUG_printf printf
+#define BUF_SIZE 2048
+#define POLL_TIME_S 5
+#define SYNC_PIN 16
+#define DATA_PIN 17
+#define PIO_INSTANCE pio0
+#define PAL_SM 0 
+#define PAL_DATA_SM 1 
+
+#define DMA_CHANNEL 0
+#define DMA_CHANNEL_MASK (1u << DMA_CHANNEL)
+
+#define BUFF_WIDTH 32
+#define BUFF_HEIGHT 310
+#define TRANSMIT_SIZE 32
+#define BUFF_SIZE BUFF_WIDTH * BUFF_HEIGHT
+#define TRANSMIT_COUNT BUFF_SIZE / TRANSMIT_SIZE

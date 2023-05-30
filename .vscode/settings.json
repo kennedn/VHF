@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "*.pio": "pio",
+        "clocks.h": "c",
+        "stdio.h": "c",
+        "cstdlib": "c",
+        "system_error": "c",
+        "pio.h": "c"
+    }
+}

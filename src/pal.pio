@@ -1,0 +1,73 @@
+.program pal
+.side_set 1
+pal_start:
+    set x 3 side 0 [14]                 ; 30us SYNC LOW
+long_sync:
+    nop side 1                          ; 2us SYNC HIGH
+    jmp x-- long_sync side 0 [14]       ; 30us SYNC LOW
+    set x 3 side 1                      ; 2us SYNC HIGH
+
+    nop side 0                          ; 2us SYNC LOW
+short_sync_1:
+    nop side 1 [14]                     ; 30us SYNC HIGH
+    jmp x-- short_sync_1 side 0         ; 2us SYNC LOW
+    set x 29 side 1 [14]                ; 30us SYNC HIGH
+
+    set y 9 side 0                      ; 2us SYNC LOW; 300 loops
+field_loop:
+    nop side 0                          ; 2us SYNC LOW
+    irq set 1 side 1 [14]               ; Raise IRQ to initiate data transfer
+    nop side 1 [14]                     ; Wait (15 + 15) * 2us (60us)
+    jmp x-- field_loop side 0           ; 2us  SYNC LOW
+    set x 29 side 0                     ; 2us  SYNC LOW
+    irq set 1 side 1 [14]               ; Raise IRQ to initiate data transfer
+    nop side 1 [14]                     ; Wait (15 + 15) * 2us (60us)
+    jmp y-- field_loop side 0           ; 2us  SYNC HIGH. DATA LOW, BACK PORCH
+
+    set x 4 side 0                      ; 2us SYNC LOW
+short_sync_2:
+    nop side 1 [14]                     ; 30us SYNC HIGH
+    jmp x-- short_sync_2 side 0         ; 2us SYNC LOW
+    jmp pal_start side 1 [14]           ; 30us SYNC HIGH
+
+
+
+;     pull side 1
+; pulse_init:
+;     nop side 1 [14]         ; 9ms off, pico assertion on the IR line causes temporary interference,
+;     nop side 1 [15]         ; waiting some time before the init pulse seems to prevent code misses
+;     nop side 0 [15] 
+;     nop side 0 [15]         ; 9ms on 
+;     nop side 1 [15]         ; 4.5ms delay
+; next:
+;     out y 1 side 0          ; Read next bit from OSR into y, side set 0 for 1 tick (280us)
+;     jmp !y short side 0     ; If y == 0, goto short,  side set 0 for 1 tick (280us)
+; long:
+;     jmp bit_loop side 1 [4] ; Side set 1 for 5 ticks (1400us)
+; short:
+;     nop side 1              ; Side set 1 for 1 tick (280us)
+; bit_loop:
+;     jmp !osre next side 1   ; goto next if osr is not empty, side set 1 for 1 tick (280us)
+; end_pulse:
+;     nop side 0 [1]          ; Side set 0 for 2 ticks (560us)
+
+% c-sdk {
+#include "hardware/clocks.h"
+static inline void pal_program_init(PIO pio, uint sm, uint offset, uint sync_pin) {
+    pio_sm_config c = pal_program_get_default_config(offset);
+    sm_config_set_sideset_pins(&c, sync_pin);
+    pio_gpio_init(pio, sync_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, sync_pin, 1, true);
+    pio_sm_set_pins_with_mask(pio, sm, (1u << sync_pin), (1u << sync_pin));
+    
+    // 1 ticks per 2us window 
+    float div = clock_get_hz(clk_sys) / ((1 / 2.0e-6f));
+    sm_config_set_clkdiv(&c, div);
+    sm_config_set_out_shift(&c, false, false, 32);
+
+    // Init the pio state machine with PC at offset
+    pio_sm_init(pio, sm, offset, &c);
+    // Start sm
+    ; pio_sm_set_enabled(pio, sm, true);
+}
+%}
