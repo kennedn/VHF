@@ -3,11 +3,12 @@
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
 #include "hardware/dma.h"
-#include "pal.pio.h"
-#include "pal_data.pio.h"
+#include "pal.h"
 #include "vhf.h"
+#include "benis.h"
 
-uint32_t *transmit_buf;
+uint32_t  *even, *odd;
+uint even_odd = true;
 
 void __isr dma_handler() {
     dma_hw->ints0 = DMA_CHANNEL_MASK;
@@ -20,8 +21,33 @@ void __isr dma_handler() {
     // pio_sm_restart(PIO_INSTANCE, PAL_SM);
     // pio_sm_set_enabled(PIO_INSTANCE, PAL_SM, true);
     // pio_sm_set_enabled(PIO_INSTANCE, PAL_DATA_SM, true);
-    
-    dma_channel_set_read_addr(DMA_CHANNEL, transmit_buf, true);
+    if (even_odd) {
+        dma_channel_set_read_addr(DMA_CHANNEL, even, true);
+        free(odd);
+        odd = (uint32_t*) malloc(ODD_EVEN_BUFFER_SIZE * sizeof(uint32_t));
+        if (odd == NULL) {
+            panic("Could not allocate memory of odd buffer");
+        }
+        for (int i = 1; i < BUFF_HEIGHT * 2; i+=2) {
+            for (int j = 0; j < TRANSMIT_COUNT_WIDTH; j++) {
+                odd[(i >> 1) * TRANSMIT_COUNT_WIDTH + j] = framebuffer[i * TRANSMIT_COUNT_WIDTH + j];
+            }
+        }
+    } else {
+        dma_channel_set_read_addr(DMA_CHANNEL, odd, true);
+        free(even);
+        even = (uint32_t*) malloc(ODD_EVEN_BUFFER_SIZE * sizeof(uint32_t));
+        if (even == NULL) {
+            panic("Could not allocate memory of odd buffer");
+        }
+        for (int i = 0; i < BUFF_HEIGHT * 2; i+=2) {
+            for (int j = 0; j < TRANSMIT_COUNT_WIDTH; j++) {
+                even[(i >> 1) * TRANSMIT_COUNT_WIDTH + j] = framebuffer[i * TRANSMIT_COUNT_WIDTH + j];
+            }
+        }
+    }
+    even_odd = !even_odd;
+
 }
 
 void dma_init() {
@@ -29,9 +55,26 @@ void dma_init() {
     channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
     channel_config_set_read_increment(&c, true);
     channel_config_set_write_increment(&c, false);
-    channel_config_set_dreq(&c, pio_get_dreq(PIO_INSTANCE, PAL_DATA_SM, true));
+    channel_config_set_dreq(&c, pio_get_dreq(PIO_INSTANCE, DATA_SM, true));
 
-    dma_channel_configure(DMA_CHANNEL, &c, &PIO_INSTANCE->txf[PAL_DATA_SM], transmit_buf, TRANSMIT_COUNT, true);
+    even = (uint32_t*) malloc(ODD_EVEN_BUFFER_SIZE * sizeof(uint32_t));
+    if (even == NULL) {
+        panic("Could not allocate memory of even buffer");
+    }
+    odd = (uint32_t*) malloc(ODD_EVEN_BUFFER_SIZE * sizeof(uint32_t));
+    if (odd == NULL) {
+        panic("Could not allocate memory of odd buffer");
+    }
+    for (int i = 0; i < BUFF_HEIGHT * 2; i++) {
+        for (int j = 0; j < TRANSMIT_COUNT_WIDTH; j++) {
+            if (i & 1 == 1) {
+                odd[(i >> 1) * TRANSMIT_COUNT_WIDTH + j] = framebuffer[i * TRANSMIT_COUNT_WIDTH + j];
+            } else {
+                even[(i >> 1) * TRANSMIT_COUNT_WIDTH + j] = framebuffer[i * TRANSMIT_COUNT_WIDTH + j];
+            }
+        }
+    }
+    dma_channel_configure(DMA_CHANNEL, &c, &PIO_INSTANCE->txf[DATA_SM], even, ODD_EVEN_BUFFER_SIZE, true);
 }
 
 
@@ -41,36 +84,47 @@ int main() {
     dma_channel_set_irq0_enabled(DMA_CHANNEL, true);
     irq_set_enabled(DMA_IRQ_0, true);
 
-    transmit_buf = (uint32_t*) malloc(TRANSMIT_COUNT * sizeof(uint32_t));
-    if (transmit_buf == NULL) {
-        return 1;
-    }
-
-    for(int i = 0; i < TRANSMIT_COUNT / 10; i++) {
-        if (i & 1 == 1) {
-            for (int j = 0; j < 10; j++) {
-                transmit_buf[((i * 10) + j)] = 0xFF00FF00;
-            }
-        } else {
-            for (int j = 0; j < 10; j++) {
-                transmit_buf[((i * 10) + j)] = 0x00FF00FF;
-            }
-        }
-
-    }
-
-    uint pal_data_offset = pio_add_program(PIO_INSTANCE, &pal_data_program);
-    pal_data_program_init(PIO_INSTANCE, PAL_DATA_SM, pal_data_offset, DATA_PIN);
-    uint pal_offset = pio_add_program(PIO_INSTANCE, &pal_program);
-    pal_program_init(PIO_INSTANCE, PAL_SM, pal_offset, SYNC_PIN);
-
-    pio_sm_set_enabled(PIO_INSTANCE, PAL_DATA_SM, true);
-    pio_sm_set_enabled(PIO_INSTANCE, PAL_SM, true);
+    // framebuffer = (uint32_t*) malloc(FULL_BUFFER_SIZE * sizeof(uint32_t));
+    // if (framebuffer == NULL) {
+    //     return 1;
+    // }
+    // bool line_switch = false;
+    // for(int i = 0; i < FULL_BUFFER_SIZE; i++) {
+    //     if (i % 240 == 0) {
+    //         line_switch = !line_switch;
+    //     }
+    //     if (line_switch) {
+    //         framebuffer[i] = 0xFFFFFFFF;
+    //     } else {
+    //         framebuffer[i] = 0x00000000;
+    //     }
+    // }
+    pal_init(PIO_INSTANCE, DATA_SM, SYNC_SM, DATA_PIN, SYNC_PIN, BUFF_WIDTH, BUFF_HEIGHT);
     dma_init(); 
 
     while (true) {
-        tight_loop_contents();
+        // tight_loop_contents();
+        // for(int i = 0; i < FULL_BUFFER_SIZE; i+=2) {
+        //     framebuffer[i] = 0xFFFFFFFF;
+        //     framebuffer[i+1] = 0x00000000;
+        //     sleep_us(100);
+        // }
+        // for(int i = FULL_BUFFER_SIZE - 1; i > 0; i-=2) {
+        //     framebuffer[i] = 0xFFFFFFFF;
+        //     framebuffer[i+1] = 0x00000000;
+        //     sleep_us(100);
+        // }
+        // for(int i = 0; i < FULL_BUFFER_SIZE; i+=2) {
+        //     framebuffer[i] = 0x00000000;
+        //     framebuffer[i+1] = 0xFFFFFFFF;
+        //     sleep_us(100);
+        // }
+        // for(int i = FULL_BUFFER_SIZE - 1; i > 0; i-=2) {
+        //     framebuffer[i] = 0x00000000;
+        //     framebuffer[i+1] = 0xFFFFFFFF;
+        //     sleep_us(100);
+        // }
     }
-    free(transmit_buf);
+    // free(framebuffer);
     return 0;
 }

@@ -5,6 +5,7 @@
         "stdio.h": "c",
         "cstdlib": "c",
         "system_error": "c",
-        "pio.h": "c"
+        "pio.h": "c",
+        "dma.h": "c"
     }
 }
